@@ -169,7 +169,7 @@ class TelaInicial extends StatelessWidget {
             ),
             SizedBox(height: 15),
             Text(
-              'Organize seus exercícios e acompanhe seu progresso!',
+              'Organize seus exercícios e acompanhe seu evolução!',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 16,
