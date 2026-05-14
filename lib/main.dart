@@ -141,7 +141,7 @@ class _HomePageState extends State<HomePage> {
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person),
-            label: 'Perfil',
+            label: 'Meu Perfil',
           ),
         ],
       ),
@@ -169,7 +169,7 @@ class TelaInicial extends StatelessWidget {
             ),
             SizedBox(height: 15),
             Text(
-              'Organize seus exercícios e acompanhe seu evolução!',
+              'Organize seus treinos e acompanhe sua evolução diária!',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 16,
