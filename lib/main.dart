@@ -209,6 +209,8 @@ class ListaTreinos extends StatelessWidget {
         return Icons.favorite;
       case 'Braço':
         return Icons.sports_mma;
+        case 'Ombro':
+        return Icons.sports_gymnastics;
       default:
         return Icons.fitness_center;
     }
@@ -228,6 +230,8 @@ class ListaTreinos extends StatelessWidget {
         return Colors.red;
       case 'Braço':
         return Colors.teal;
+        case 'Ombro':
+        return Colors.indigo;
       default:
         return Colors.pink;
     }
@@ -439,6 +443,7 @@ class _AddTreinoState extends State<AddTreino> {
                 'Costas',
                 'Peito',
                 'Braço',
+                'Ombro',
               ]
                   .map(
                     (tipo) => DropdownMenuItem(
