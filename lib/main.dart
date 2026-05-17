@@ -11,7 +11,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Controle de Treinos',
+      title: 'TrackGym',
       theme: ThemeData(
         primarySwatch: Colors.pink,
         scaffoldBackgroundColor: const Color.fromARGB(255, 242, 190, 190),
@@ -87,9 +87,9 @@ class _HomePageState extends State<HomePage> {
         title: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.fitness_center, color: Colors.white),
+            Icon(Icons.fitness_center, color: Color.fromARGB(255, 0, 0, 0)),
             SizedBox(width: 8),
-            Text('Controle de Treinos'),
+            Text('TrackGym'),
           ],
         ),
       ),
@@ -97,7 +97,7 @@ class _HomePageState extends State<HomePage> {
         child: ListView(
           children: const [
             DrawerHeader(
-              decoration: BoxDecoration(color: Colors.pink),
+              decoration: BoxDecoration(color: Color.fromARGB(255, 255, 139, 177)),
               child: Center(
                 child: Text(
                   'Menu',
@@ -334,7 +334,7 @@ class PerfilUsuario extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           const Text(
-            'Usuário',
+            'Meu perfil',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
