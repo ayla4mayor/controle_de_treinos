@@ -110,18 +110,17 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-  const TelaInicial(),
-  ListaTreinos(
-    treinos: treinos,
-    onToggle: _toggleFeito,
-    onDelete: _confirmarRemocao,
-  ),
-  AddTreino(onAdd: _addTreino),
-  const CalculadoraVolume(),
-  const CalculadoraIMC(), // NOVA TELA
-  EstatisticasTreino(treinos: treinos),
-  PerfilUsuario(treinos: treinos),
-];
+      const TelaInicial(),
+      ListaTreinos(
+        treinos: treinos,
+        onToggle: _toggleFeito,
+        onDelete: _confirmarRemocao,
+      ),
+      AddTreino(onAdd: _addTreino),
+      const CalculadoraVolume(),
+      EstatisticasTreino(treinos: treinos),
+      PerfilUsuario(treinos: treinos),
+    ];
 
     return Scaffold(
       appBar: AppBar(
@@ -182,7 +181,7 @@ class TelaInicial extends StatelessWidget {
             ),
             SizedBox(height: 16),
             Text(
-              'Sua jornada fitness começa aqui. Organize, calcule e evolua!',
+              'Organize seus treinos e acompanhe sua evolução diariamente!',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 16, color: Colors.black54),
             ),
