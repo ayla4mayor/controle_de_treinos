@@ -171,7 +171,7 @@ class TelaInicial extends StatelessWidget {
           children: [
             Hero(
               tag: 'logo',
-              child: Icon(Icons.bolt, size: 100, color: Colors.pinkAccent),
+              child: Icon(Icons.fitness_center, size: 100, color: Colors.pinkAccent),
             ),
             SizedBox(height: 20),
             Text(
