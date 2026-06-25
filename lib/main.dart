@@ -513,6 +513,10 @@ class PerfilUsuario extends StatelessWidget {
               children: [
                 _buildInfoRow('Total de Exercícios', treinos.length.toString()),
                 _buildInfoRow('Concluídos', feitos.toString()),
+                _buildInfoRow(
+                'Pendentes',
+                (treinos.length - feitos).toString(),
+                ),
                 const Divider(),
                 const SizedBox(height: 10),
                 const Text('Seu Progresso Atual'),
