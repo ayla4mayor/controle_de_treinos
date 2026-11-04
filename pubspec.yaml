@@ -1,26 +1,23 @@
-name: pedido
-description: "A new Flutter project."
-publish_to: 'none'
+name: trackgym_pro
+description: Organizador de treinos com catálogo público de exercícios do wger.
+publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.11.3
+  sdk: ">=3.5.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-
-  cupertino_icons: ^1.0.8
-  sqflite: ^2.3.3+1
-  sqflite_common_ffi: 2.4.0+3 # Necessário para SQLite funcionar no Linux/Windows Desktop
+  http: ^1.2.2
   path: ^1.9.0
-  shared_preferences: ^2.2.3
+  shared_preferences: ^2.3.2
+  sqflite: ^2.4.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-  flutter_lints: ^6.0.0
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
