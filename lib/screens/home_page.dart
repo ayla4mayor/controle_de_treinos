@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/treino_model.dart';
+
 import '../database/database_helper.dart';
+import '../models/treino_model.dart';
+import 'exercises_screen.dart';
+import 'profile_screen.dart';
+import 'volume_screen.dart';
+import 'workouts_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -11,99 +16,179 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  final DatabaseHelper _database = DatabaseHelper.instance;
   int _selectedIndex = 0;
-  final DatabaseHelper _db = DatabaseHelper();
-  List<Treino> treinos = [];
+  List<Treino> _treinos = [];
   bool _carregando = true;
-  String? _erro;
+  String _nomeUsuario = 'Atleta';
+  Object? _erro;
 
- @override
-void initState() {
-  super.initState();
-  _carregarTreinos();
-}
+  @override
+  void initState() {
+    super.initState();
+    _carregarDados();
+  }
 
-  // ---------- READ ----------
-  Future<void> _carregarTreinos() async {
-    setState(() {
-      _carregando = true;
-      _erro = null;
-    });
+  Future<void> _carregarDados() async {
     try {
-      final lista = await _db.listarTreinos();
+      final preferences = await SharedPreferences.getInstance();
+      final treinos = await _database.listarTreinos();
+      if (!mounted) return;
       setState(() {
-        treinos = lista;
+        _nomeUsuario = preferences.getString('nome_usuario') ?? 'Atleta';
+        _treinos = treinos;
         _carregando = false;
+        _erro = null;
       });
-    } catch (e) {
+    } catch (error) {
+      if (!mounted) return;
       setState(() {
-        _erro = e.toString();
+        _erro = error;
         _carregando = false;
       });
     }
   }
 
-  // ---------- CREATE ----------
-  Future<void> _addTreino(String nome, String tipo) async {
-    final novo = Treino(nome: nome, tipo: tipo, data: DateTime.now());
-    await _db.inserirTreino(novo);
-    await _carregarTreinos();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Treino adicionado com sucesso!')),
-    );
+  Future<void> _salvarTreino(
+    String nome,
+    String tipo, {
+    Treino? existente,
+  }) async {
+    final valor = nome.trim();
+    if (valor.isEmpty) return;
+    try {
+      if (existente == null) {
+        await _database.inserirTreino(
+          Treino(nome: valor, tipo: tipo, data: DateTime.now()),
+        );
+      } else {
+        await _database.atualizarTreino(
+          existente.copyWith(nome: valor, tipo: tipo),
+        );
+      }
+      await _carregarDados();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            existente == null
+                ? 'Treino adicionado à sua lista.'
+                : 'Treino atualizado.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível salvar o treino. Tente novamente.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
-  // ---------- UPDATE (status feito) ----------
-  Future<void> _toggleFeito(int index) async {
-    final treino = treinos[index];
-    final atualizado = treino.copyWith(feito: !treino.feito);
-    await _db.atualizarTreino(atualizado);
-    await _carregarTreinos();
+  Future<void> _alterarStatus(Treino treino) async {
+    await _database.atualizarTreino(treino.copyWith(feito: !treino.feito));
+    await _carregarDados();
   }
 
-  // ---------- UPDATE (editar nome/tipo) ----------
-  Future<void> _editarTreino(int index) async {
-    final treino = treinos[index];
-    final nomeController = TextEditingController(text: treino.nome);
-    String tipoSelecionado = treino.tipo;
-
-    await showDialog(
+  Future<void> _excluirTreino(Treino treino) async {
+    final confirmar = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setStateDialog) => AlertDialog(
-          title: const Text('Editar Treino'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nomeController,
-                decoration: const InputDecoration(labelText: 'Nome'),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: tipoSelecionado,
-                items: ['Perna', 'Peito', 'Costas', 'Braço', 'Ombro', 'Cardio']
-                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                    .toList(),
-                onChanged: (v) => setStateDialog(() => tipoSelecionado = v!),
-              ),
-            ],
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remover treino?'),
+        content: Text('“${treino.nome}” será removido da sua lista.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true || treino.id == null) return;
+    await _database.removerTreino(treino.id!);
+    await _carregarDados();
+  }
+
+  Future<void> _abrirEditor({
+    Treino? treino,
+    String? nomeInicial,
+    String? tipoInicial,
+  }) async {
+    final formKey = GlobalKey<FormState>();
+    var nome = nomeInicial ?? treino?.nome ?? '';
+    var tipo = tipoInicial ?? treino?.tipo ?? 'Pernas';
+    const tipos = [
+      'Pernas',
+      'Peito',
+      'Costas',
+      'Braços',
+      'Ombros',
+      'Abdômen',
+      'Cardio',
+      'Outros',
+    ];
+
+    final salvar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(treino == null ? 'Novo treino' : 'Editar treino'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  initialValue: nome,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    labelText: 'Nome do exercício',
+                    prefixIcon: Icon(Icons.fitness_center),
+                  ),
+                  onSaved: (value) => nome = value?.trim() ?? '',
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Informe o nome do exercício'
+                      : null,
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  value: tipos.contains(tipo) ? tipo : 'Pernas',
+                  decoration: const InputDecoration(
+                    labelText: 'Grupo muscular',
+                  ),
+                  items: tipos
+                      .map(
+                        (item) =>
+                            DropdownMenuItem(value: item, child: Text(item)),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => tipo = value);
+                  },
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('Cancelar'),
             ),
-            ElevatedButton(
-              onPressed: () async {
-                final atualizado = treino.copyWith(
-                  nome: nomeController.text,
-                  tipo: tipoSelecionado,
-                );
-                await _db.atualizarTreino(atualizado);
-                Navigator.pop(context);
-                await _carregarTreinos();
+            FilledButton(
+              onPressed: () {
+                final form = formKey.currentState!;
+                if (!form.validate()) return;
+                form.save();
+                Navigator.pop(dialogContext, true);
               },
               child: const Text('Salvar'),
             ),
@@ -111,547 +196,458 @@ void initState() {
         ),
       ),
     );
+    if (salvar == true) {
+      await _salvarTreino(nome, tipo, existente: treino);
+    }
   }
 
-  // ---------- DELETE ----------
-  void _confirmarRemocao(int index) {
-    final treino = treinos[index];
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirmar Exclusão'),
-        content: Text('Deseja realmente remover o treino "${treino.nome}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                foregroundColor: Colors.white),
-            onPressed: () async {
-              await _db.removerTreino(treino.id!);
-              Navigator.pop(context);
-              await _carregarTreinos();
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Treino removido')),
-              );
-            },
-            child: const Text('Excluir'),
-          ),
-        ],
-      ),
-    );
+  Future<void> _editarNome(String novoNome) async {
+    final nome = novoNome.trim();
+    if (nome.isEmpty) return;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('nome_usuario', nome);
+    if (!mounted) return;
+    setState(() => _nomeUsuario = nome);
   }
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      const TelaInicial(),
+    final feitos = _treinos.where((treino) => treino.feito).length;
+    final paginas = [
       _carregando
-          ? const Center(child: CircularProgressIndicator())
+          ? const _LoadingView()
           : _erro != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.error_outline,
-                            color: Colors.redAccent, size: 40),
-                        const SizedBox(height: 12),
-                        Text('Erro ao carregar treinos:\n$_erro',
-                            textAlign: TextAlign.center),
-                        const SizedBox(height: 12),
-                        ElevatedButton(
-                          onPressed: _carregarTreinos,
-                          child: const Text('Tentar novamente'),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              : ListaTreinos(
-              treinos: treinos,
-              onToggle: _toggleFeito,
-              onDelete: _confirmarRemocao,
-              onEdit: _editarTreino,
+          ? _ErrorView(onRetry: _carregarDados)
+          : _DashboardScreen(
+              nome: _nomeUsuario,
+              total: _treinos.length,
+              feitos: feitos,
+              onOpenTreinos: () => setState(() => _selectedIndex = 1),
+              onOpenCatalogo: () => setState(() => _selectedIndex = 2),
             ),
-      AddTreino(onAdd: _addTreino),
-      const CalculadoraVolume(),
-      EstatisticasTreino(treinos: treinos),
-      PerfilUsuario(treinos: treinos),
+      WorkoutsScreen(
+        treinos: _treinos,
+        onAdd: () => _abrirEditor(),
+        onEdit: (treino) => _abrirEditor(treino: treino),
+        onToggle: _alterarStatus,
+        onDelete: _excluirTreino,
+      ),
+      ExercisesScreen(
+        onAdicionar: (nome, tipo) =>
+            _abrirEditor(nomeInicial: nome, tipoInicial: tipo),
+      ),
+      const VolumeScreen(),
+      ProfileScreen(
+        nome: _nomeUsuario,
+        treinos: _treinos,
+        onEditarNome: _editarNome,
+      ),
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.fitness_center),
-            SizedBox(width: 10),
-            Text('TrackGym Pro'),
-          ],
-        ),
+      body: SafeArea(
+        bottom: false,
+        child: IndexedStack(index: _selectedIndex, children: paginas),
       ),
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 400),
-        child: pages[_selectedIndex],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        selectedItemColor: Colors.pinkAccent,
-        unselectedItemColor: Colors.grey,
-        type: BottomNavigationBarType.fixed,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Início'),
-          BottomNavigationBarItem(icon: Icon(Icons.list), label: 'Treinos'),
-          BottomNavigationBarItem(icon: Icon(Icons.add), label: 'Novo'),
-          BottomNavigationBarItem(icon: Icon(Icons.calculate), label: 'Volume'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Stats'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) =>
+            setState(() => _selectedIndex = index),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home_rounded),
+            label: 'Início',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.checklist_rounded),
+            label: 'Treinos',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.explore_outlined),
+            selectedIcon: Icon(Icons.explore_rounded),
+            label: 'Exercícios',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calculate_outlined),
+            selectedIcon: Icon(Icons.calculate_rounded),
+            label: 'Volume',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline_rounded),
+            selectedIcon: Icon(Icons.person_rounded),
+            label: 'Perfil',
+          ),
         ],
       ),
     );
   }
 }
 
-class TelaInicial extends StatelessWidget {
-  const TelaInicial({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Hero(
-              tag: 'logo',
-              child: Icon(Icons.fitness_center, size: 100, color: Colors.pinkAccent),
-            ),
-            SizedBox(height: 20),
-            Text(
-              'Bem-vindo ao TrackGym Pro',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 16),
-            Text(
-              'Organize seus treinos e acompanhe sua evolução diariamente!',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.black54),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class CustomCard extends StatelessWidget {
-  final Widget child;
-  final Color? color;
-  const CustomCard({super.key, required this.child, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: color,
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: child,
-      ),
-    );
-  }
-}
-
-class ListaTreinos extends StatelessWidget {
-  final List<Treino> treinos;
-  final Function(int) onToggle;
-  final Function(int) onDelete;
-  final Function(int) onEdit;
-
-  const ListaTreinos({
-    super.key,
-    required this.treinos,
-    required this.onToggle,
-    required this.onDelete,
-    required this.onEdit,
+class _DashboardScreen extends StatelessWidget {
+  const _DashboardScreen({
+    required this.nome,
+    required this.total,
+    required this.feitos,
+    required this.onOpenTreinos,
+    required this.onOpenCatalogo,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    if (treinos.isEmpty) {
-      return const Center(child: Text('Nenhum treino cadastrado.'));
-    }
-
-    return ListView.builder(
-      itemCount: treinos.length,
-      itemBuilder: (context, index) {
-        final treino = treinos[index];
-        return CustomCard(
-          child: ListTile(
-            onTap: () => onEdit(index),
-            leading: CircleAvatar(
-              backgroundColor: Colors.pinkAccent.withOpacity(0.2),
-              child: const Icon(Icons.fitness_center, color: Colors.pinkAccent),
-            ),
-            title: Text(treino.nome, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 8.0),
-              child: Wrap(
-                children: [
-                  Chip(
-                    label: Text(treino.tipo, style: const TextStyle(fontSize: 10)),
-                    backgroundColor: Colors.pinkAccent.withOpacity(0.1),
-                    padding: EdgeInsets.zero,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ],
-              ),
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Checkbox(
-                  value: treino.feito,
-                  onChanged: (_) => onToggle(index),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.edit, color: Colors.deepPurpleAccent),
-                  onPressed: () => onEdit(index),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                  onPressed: () => onDelete(index),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class AddTreino extends StatefulWidget {
-  final Function(String, String) onAdd;
-  const AddTreino({super.key, required this.onAdd});
-
-  @override
-  State<AddTreino> createState() => _AddTreinoState();
-}
-
-class _AddTreinoState extends State<AddTreino> {
-  final _formKey = GlobalKey<FormState>();
-  final nomeController = TextEditingController();
-  String tipoSelecionado = 'Perna';
+  final String nome;
+  final int total;
+  final int feitos;
+  final VoidCallback onOpenTreinos;
+  final VoidCallback onOpenCatalogo;
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Form(
-        key: _formKey,
-        child: Column(
+    final progresso = total == 0 ? 0.0 : feitos / total;
+    final primeiroNome = nome.trim().split(RegExp(r'\s+')).first;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+      children: [
+        Row(
           children: [
-            const Text('Novo Exercício', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
-            TextFormField(
-              controller: nomeController,
-              decoration: const InputDecoration(labelText: 'Nome', border: OutlineInputBorder()),
-              validator: (v) => v!.isEmpty ? 'Campo obrigatório' : null,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: tipoSelecionado,
-              items: ['Perna', 'Peito', 'Costas', 'Braço', 'Ombro', 'Cardio']
-                  .map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-              onChanged: (v) => setState(() => tipoSelecionado = v!),
-              decoration: const InputDecoration(border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-              onPressed: () {
-                if (_formKey.currentState!.validate()) {
-                  widget.onAdd(nomeController.text, tipoSelecionado);
-                  nomeController.clear();
-                }
-              },
-              child: const Text('Salvar Treino'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class CalculadoraVolume extends StatefulWidget {
-  const CalculadoraVolume({super.key});
-
-  @override
-  State<CalculadoraVolume> createState() => _CalculadoraVolumeState();
-}
-
-class _CalculadoraVolumeState extends State<CalculadoraVolume> {
-  final seriesController = TextEditingController(text: '3');
-  final repsController = TextEditingController(text: '10');
-  final cargaController = TextEditingController(text: '20');
-  double _volumeTotal = 0;
-  bool _showResult = false;
-
-  void _calcular() {
-    double s = double.tryParse(seriesController.text) ?? 0;
-    double r = double.tryParse(repsController.text) ?? 0;
-    double c = double.tryParse(cargaController.text) ?? 0;
-
-    setState(() {
-      _volumeTotal = s * r * c;
-      _showResult = true;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          const Text('Calculadora de Volume', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(child: _buildInput('Séries', seriesController)),
-              const SizedBox(width: 10),
-              Expanded(child: _buildInput('Reps', repsController)),
-              const SizedBox(width: 10),
-              Expanded(child: _buildInput('Carga (kg)', cargaController)),
-            ],
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: _calcular,
-            icon: const Icon(Icons.calculate),
-            label: const Text('Calcular Volume'),
-          ),
-          const SizedBox(height: 30),
-          AnimatedScale(
-            scale: _showResult ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.elasticOut,
-            child: AnimatedOpacity(
-              opacity: _showResult ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 300),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.deepPurpleAccent,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10)],
-                ),
-                child: Column(
-                  children: [
-                    const Text('Volume Total do Exercício', style: TextStyle(color: Colors.white70, fontSize: 16)),
-                    Text('${_volumeTotal.toStringAsFixed(1)} kg',
-                        style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 10),
-                    const Icon(Icons.trending_up, color: Colors.white, size: 40),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInput(String label, TextEditingController controller) {
-    return TextField(
-      controller: controller,
-      keyboardType: TextInputType.number,
-      decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
-    );
-  }
-}
-
-class EstatisticasTreino extends StatelessWidget {
-  final List<Treino> treinos;
-  const EstatisticasTreino({super.key, required this.treinos});
-
-  @override
-  Widget build(BuildContext context) {
-    Map<String, int> contagem = {};
-    for (var t in treinos) {
-      contagem[t.tipo] = (contagem[t.tipo] ?? 0) + 1;
-    }
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Resumo por Categoria', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(Colors.pinkAccent.withOpacity(0.1)),
-              columns: const [
-                DataColumn(label: Text('Categoria')),
-                DataColumn(label: Text('Quantidade'), numeric: true),
-                DataColumn(label: Text('% Total'), numeric: true),
-              ],
-              rows: contagem.entries.map((e) {
-                double perc = treinos.isEmpty ? 0 : (e.value / treinos.length) * 100;
-                return DataRow(cells: [
-                  DataCell(Text(e.key)),
-                  DataCell(Text(e.value.toString())),
-                  DataCell(Text('${perc.toStringAsFixed(1)}%')),
-                ]);
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 30),
-          const Text('Distribuição Visual', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          ...contagem.entries.map((e) {
-            double widthFactor = treinos.isEmpty ? 0 : e.value / treinos.length;
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(e.key),
-                  AnimatedContainer(
-                    duration: const Duration(seconds: 1),
-                    height: 12,
-                    width: (MediaQuery.of(context).size.width - 40) * widthFactor,
-                    decoration: BoxDecoration(
-                      color: Colors.pinkAccent,
-                      borderRadius: BorderRadius.circular(6),
+                  const Text(
+                    'TRACKGYM PRO',
+                    style: TextStyle(
+                      fontSize: 11,
+                      letterSpacing: 1.7,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFFE84478),
                     ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    'Olá, $primeiroNome!',
+                    style: const TextStyle(
+                      fontSize: 27,
+                      letterSpacing: -0.8,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF241B24),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Vamos avançar no seu treino?',
+                    style: TextStyle(color: Color(0xFF766B75)),
                   ),
                 ],
               ),
-            );
-          }).toList(),
-        ],
-      ),
+            ),
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFE8F0),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(Icons.bolt_rounded, color: Color(0xFFE84478)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFE84478), Color(0xFF9D4CC8)],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFE84478).withValues(alpha: 0.2),
+                blurRadius: 24,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Seu progresso',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.trending_up_rounded,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                total == 0
+                    ? 'Adicione seu primeiro exercício para começar.'
+                    : '$feitos de $total exercícios concluídos',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.85)),
+              ),
+              const SizedBox(height: 18),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: LinearProgressIndicator(
+                  value: progresso,
+                  minHeight: 9,
+                  backgroundColor: Colors.white.withValues(alpha: 0.25),
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  '${(progresso * 100).round()}%',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              child: _MetricCard(
+                label: 'Exercícios',
+                value: '$total',
+                icon: Icons.fitness_center_rounded,
+                tint: const Color(0xFFFFE8F0),
+                color: const Color(0xFFE84478),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _MetricCard(
+                label: 'Concluídos',
+                value: '$feitos',
+                icon: Icons.task_alt_rounded,
+                tint: const Color(0xFFEAE5FF),
+                color: const Color(0xFF7656D8),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 26),
+        const Text(
+          'Acesso rápido',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF241B24),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _QuickAction(
+          icon: Icons.add_rounded,
+          title: 'Organizar meus treinos',
+          subtitle: 'Adicionar, editar e marcar exercícios',
+          onTap: onOpenTreinos,
+        ),
+        const SizedBox(height: 10),
+        _QuickAction(
+          icon: Icons.travel_explore_rounded,
+          title: 'Explorar exercícios',
+          subtitle: 'Catálogo público da API wger',
+          onTap: onOpenCatalogo,
+        ),
+        const SizedBox(height: 22),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEDE8FF),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.lightbulb_outline_rounded, color: Color(0xFF7656D8)),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Consistência vale mais do que intensidade. Registre cada passo.',
+                  style: TextStyle(
+                    color: Color(0xFF4C3C78),
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
 
-class PerfilUsuario extends StatefulWidget {
-  final List<Treino> treinos;
-  const PerfilUsuario({super.key, required this.treinos});
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.tint,
+    required this.color,
+  });
 
-  @override
-  State<PerfilUsuario> createState() => _PerfilUsuarioState();
-}
-
-class _PerfilUsuarioState extends State<PerfilUsuario> {
-  String nome = 'Usuário TrackGym Pro';
-
-  @override
-  void initState() {
-    super.initState();
-    _carregarNome();
-  }
-
-  // ---------- SharedPreferences: leitura ----------
-  Future<void> _carregarNome() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      nome = prefs.getString('nome_usuario') ?? nome;
-    });
-  }
-
-  // ---------- SharedPreferences: escrita ----------
-  Future<void> _editarNome() async {
-    final controller = TextEditingController(text: nome);
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Editar Nome'),
-        content: TextField(controller: controller),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('nome_usuario', controller.text);
-              setState(() => nome = controller.text);
-              if (!context.mounted) return;
-              Navigator.pop(context);
-            },
-            child: const Text('Salvar'),
-          ),
-        ],
-      ),
-    );
-  }
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color tint;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final treinos = widget.treinos;
-    int feitos = treinos.where((t) => t.feito).length;
-    double progresso = treinos.isEmpty ? 0 : feitos / treinos.length;
-
-    return Padding(
-      padding: const EdgeInsets.all(24),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF0E9ED)),
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const CircleAvatar(radius: 60, backgroundColor: Colors.pinkAccent, child: Icon(Icons.person, size: 60, color: Colors.white)),
-          const SizedBox(height: 20),
-          Text(nome, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          TextButton.icon(
-            onPressed: _editarNome,
-            icon: const Icon(Icons.edit, size: 16),
-            label: const Text('Editar nome'),
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: tint,
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icon, color: color, size: 20),
           ),
-          const SizedBox(height: 10),
-          CustomCard(
-            child: Column(
-              children: [
-                _buildInfoRow('Total de Exercícios', treinos.length.toString()),
-                _buildInfoRow('Concluídos', feitos.toString()),
-                _buildInfoRow('Pendentes', (treinos.length - feitos).toString()),
-                const Divider(),
-                const SizedBox(height: 10),
-                const Text('Seu Progresso Atual'),
-                const SizedBox(height: 10),
-                LinearProgressIndicator(value: progresso, minHeight: 12, borderRadius: BorderRadius.circular(10)),
-                const SizedBox(height: 10),
-                Text('${(progresso * 100).toStringAsFixed(0)}%', style: const TextStyle(fontWeight: FontWeight.bold)),
-              ],
+          const SizedBox(height: 13),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF241B24),
             ),
           ),
+          Text(label, style: const TextStyle(color: Color(0xFF766B75))),
         ],
       ),
     );
   }
+}
 
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [Text(label, style: const TextStyle(fontSize: 16)), Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))],
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.all(15),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFE8F0),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: const Color(0xFFE84478)),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF241B24),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF766B75),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Color(0xFF9B9099)),
+            ],
+          ),
+        ),
       ),
     );
   }
+}
+
+class _LoadingView extends StatelessWidget {
+  const _LoadingView();
+
+  @override
+  Widget build(BuildContext context) =>
+      const Center(child: CircularProgressIndicator());
+}
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.storage_rounded, size: 42, color: Color(0xFFE84478)),
+          const SizedBox(height: 12),
+          const Text(
+            'Não foi possível abrir seus treinos.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.tonal(
+            onPressed: onRetry,
+            child: const Text('Tentar novamente'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
