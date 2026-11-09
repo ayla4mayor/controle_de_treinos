@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import '../database/database_helper.dart';
 import '../models/treino_model.dart';
 import 'exercises_screen.dart';
